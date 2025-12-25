@@ -1,0 +1,120 @@
+name: Release Build
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-upload:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: ""
+            archive: "tar.gz"
+            asset_suffix: "linux-amd64"
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: ".exe"
+            archive: "zip"
+            asset_suffix: "windows-amd64"
+
+          - os: macos-14
+            target: aarch64-apple-darwin
+            suffix: ""
+            archive: "tar.gz"
+            asset_suffix: "macos-arm64"
+
+          - os: macos-13
+            target: x86_64-apple-darwin
+            suffix: ""
+            archive: "tar.gz"
+            asset_suffix: "macos-amd64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # DYNAMIC EXTRACTION STEP
+      # We force 'bash' shell even on Windows to use the same logic/tools (jq).
+      - name: Extract Binary Name
+        shell: bash
+        run: |
+          # Query Cargo for the name of the binary target
+          # This works even if package.name differs from [[bin]].name
+          BIN_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("bin")) | .name' | head -n 1)
+          
+          if [ -z "$BIN_NAME" ]; then
+            echo "Error: Could not determine binary name from Cargo.toml"
+            exit 1
+          fi
+          
+          echo "Detected binary name: $BIN_NAME"
+          echo "BIN_NAME=$BIN_NAME" >> $GITHUB_ENV
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Unix Packaging
+      - name: Archive and Checksum (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ASSET_NAME="${{ env.BIN_NAME }}-${{ matrix.asset_suffix }}.${{ matrix.archive }}"
+          STAGING="${{ env.BIN_NAME }}-${{ matrix.asset_suffix }}"
+          
+          mkdir -p "$STAGING"
+          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.suffix }}" "$STAGING/"
+          cp LICENSE "$STAGING/" || echo "WARNING: LICENSE file not found"
+          
+          tar -czf "$ASSET_NAME" "$STAGING"
+          shasum -a 256 "$ASSET_NAME" > "$ASSET_NAME.sha256"
+          
+          echo "ASSET_PATH=$ASSET_NAME" >> $GITHUB_ENV
+
+      # Windows Packaging
+      - name: Archive and Checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $assetName = "${{ env.BIN_NAME }}-${{ matrix.asset_suffix }}.${{ matrix.archive }}"
+          $staging = "${{ env.BIN_NAME }}-${{ matrix.asset_suffix }}"
+          
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          
+          Copy-Item "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.suffix }}" -Destination "$staging/"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination "$staging/" }
+          
+          7z a "$assetName" "$staging"
+          
+          $hash = (Get-FileHash "$assetName" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $assetName" | Out-File -FilePath "$assetName.sha256" -Encoding ascii
+          
+          echo "ASSET_PATH=$assetName" >> $GITHUB_ENV
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            ${{ env.ASSET_PATH }}
+            ${{ env.ASSET_PATH }}.sha256
+          draft: true
+          generate_release_notes: true

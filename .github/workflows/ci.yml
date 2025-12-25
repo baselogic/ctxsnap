@@ -1,0 +1,57 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Cache dependencies to speed up subsequent builds
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+
+      # 1. FAIL FAST: Format Check
+      # Check style before wasting CPU on compilation
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
+      # 2. SECURITY AUDIT
+      # Optimization: Run only on Linux. The Cargo.lock is platform-independent.
+      # This prevents triple redundancy for a check that yields the same result on all OSs.
+      - name: Security Audit
+        if: matrix.os == 'ubuntu-latest'
+        uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 3. STATIC ANALYSIS: Clippy
+      # --locked ensures exact dependency reproducibility
+      # --all-targets checks tests and benchmarks
+      # -D warnings treats lints as fatal errors
+      - name: Clippy (Lints)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      # 4. FUNCTIONAL TESTING
+      # 'cargo test' builds the artifacts and runs the suite across all platforms
+      - name: Run Tests
+        run: cargo test --workspace --all-features --locked
