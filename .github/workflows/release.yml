@@ -89,7 +89,7 @@ jobs:
           
           echo "ASSET_PATH=$ASSET_NAME" >> $GITHUB_ENV
 
-      # Windows Packaging
+      # Empaquetado Windows (CORREGIDO)
       - name: Archive and Checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -107,7 +107,7 @@ jobs:
           $hash = (Get-FileHash "$assetName" -Algorithm SHA256).Hash.ToLower()
           "$hash  $assetName" | Out-File -FilePath "$assetName.sha256" -Encoding ascii
           
-          echo "ASSET_PATH=$assetName" >> $GITHUB_ENV
+          "ASSET_PATH=$assetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
