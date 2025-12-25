@@ -59,7 +59,10 @@ fn main() -> Result<()> {
     // Handle --init
     if args.init {
         config.save_local(&root)?;
-        eprintln!("Initialized local config: {}/ctxsnap.toml", clean_path(&root));
+        eprintln!(
+            "Initialized local config: {}/ctxsnap.toml",
+            clean_path(&root)
+        );
         return Ok(());
     }
 

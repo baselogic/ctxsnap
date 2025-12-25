@@ -72,10 +72,13 @@ impl AppConfig {
         } else {
             let config = Self::default();
             let content = toml::to_string_pretty(&config)?;
-            
+
             // Report write failure but allow process to continue (soft fail)
             if let Err(e) = fs::write(&global_path, content) {
-                eprintln!("Warning: Could not create global config at {:?}: {}", global_path, e);
+                eprintln!(
+                    "Warning: Could not create global config at {:?}: {}",
+                    global_path, e
+                );
             }
             Ok(config)
         }
